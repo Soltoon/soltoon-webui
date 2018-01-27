@@ -6,8 +6,12 @@ class Site {
     static paperWidth: number = 1000;
     static paperHeight: number = 650;
     static paper: RaphaelPaper = Raphael("game-viewer", Site.paperWidth, Site.paperHeight);
-    static eventTime = 1000;
-    static currentEvent = 0;
+    static eventTime: number = 1000;
+    static currentEvent: number = 0;
+    static stated: boolean = false;
+    static paused: boolean = true;
+    private static isRunningAnimation = false;
+    private static interval: number;
 
     static game: Game;
 
@@ -24,19 +28,74 @@ class Site {
         };
     }
 
-    static run(): void {
+    static play(): void {
+        if (!this.paused)
+            return;
+        this.paused = false;
+        this.interval = setInterval(() => {
+            this.runNext();
+        }, this.eventTime);
+    }
+
+    static pause(): void {
+        if (this.paused)
+            return;
+        clearInterval(this.interval);
+        this.paused = true;
+    }
+
+    static runNext(): void {
+        if (this.isRunningAnimation)
+            return;
+        this.isRunningAnimation = true;
+        setTimeout(() => {
+            this.isRunningAnimation = false;
+        }, this.eventTime);
         if (this.currentEvent < this.game.events.length) {
             this.game.events[this.currentEvent++].run();
         }
     }
 
     static next(): void {
+        if (this.isRunningAnimation)
+            return;
+        if (this.paused == false)
+            return;
         if (this.currentEvent < this.game.events.length) {
             this.game.events[this.currentEvent++].runWithoutAnimation();
         }
     }
 
+    static nextToNearestRun(): void {
+        if (this.isRunningAnimation)
+            return;
+        if (this.paused == false)
+            return;
+        while (this.currentEvent < this.game.events.length && this.game.events[this.currentEvent].type != 'round') {
+            this.next();
+        }
+        this.runNext();
+    }
+
+    static prevToNearestRun(): void {
+        if (this.isRunningAnimation)
+            return;
+        if (this.paused == false)
+            return;
+        this.prev();
+
+        while (this.currentEvent > 0 && this.game.events[this.currentEvent - 1].type != 'round') {
+            this.prev();
+        }
+        this.prev();
+        this.runNext();
+    }
+
     static prev(): void {
+        if (this.isRunningAnimation)
+            return;
+        if (this.paused == false)
+            return;
         if (this.currentEvent > 0) {
             this.game.events[--this.currentEvent].rollback();
         }
@@ -422,7 +481,9 @@ class ShootEvent extends GameEvent {
         ).attr({
             'stroke': 'red',
             'stroke-dasharray': '--.',
-            'stroke-width': 2
+            'stroke-width': 2,
+            "arrow-end": "block-wide-long",
+            "arrow-start": "oval-narrow-midium"
         });
         let fromKhadang = KhadangHelper.get(this.from);
         let toKhadangId = KhadangHelper.getId(this.to);
@@ -651,10 +712,159 @@ class Game {
     }
 }
 
+function addButton(x: number, y: number, text: string, title: string, callback, isDisabled?): RaphaelSet {
+    let set = Site.paper.set();
+    let button = Site.paper.rect(x, y, 80, 35, 4).attr({
+        "stroke-width": 0,
+        "fill": "#E0E1E2"
+    });
 
-$.getJSON('game.json').always((data) => {
+    let txt = Site.paper.text(x + (80 / 2), y + 16, text)
+        .attr({
+            'text-anchor': 'middle',
+            'font-family': 'Samim',
+            'font-size': '14px',
+            'fill': '#626262'
+        });
+    button.attr('width', $(txt.node).width() + 30);
+    txt.attr('x', x + button.attr('width') / 2);
+    set.push(button);
+    set.push(txt);
+    set.attr({
+        cursor: 'pointer',
+        title: title
+    }).hover(() => {
+        if (isDisabled && isDisabled()) {
+            set.attr('cursor', 'not-allowed');
+            button.attr('fill', "#E0E1E2");
+            txt.attr('fill', '#626262');
+        } else {
+            set.attr('cursor', 'pointer');
+            button.attr('fill', "#CACBCD");
+            txt.attr('fill', '#2C2C2C');
+        }
+    }, () => {
+        button.attr('fill', "#E0E1E2");
+        txt.attr('fill', '#626262');
+    });
+    set.click(() => {
+        if (isDisabled && isDisabled()) {
+
+        } else {
+            return callback(button, txt);
+        }
+    });
+    return set;
+}
+
+// create right menu:
+Site.paper.image("assets/imgs/SoltoonGUI.png", 650, 0, 350, 225);
+
+Site.paper.text(995, 260, 'تنظیمات:')
+    .attr({
+        'text-anchor': 'start',
+        'font-family': 'Samim',
+        'font-size': '32px',
+        'font-weight': 'bold'
+    });
+
+let x = 685;
+x += addButton(x, 290, "»»»", "مشاهده‌ی راند بعدی\n باید بازی در‌حال اجرا نباشد.",
+    () => {
+        return Site.nextToNearestRun();
+    }, () => {
+        return !Site.paused || !Site.stated
+    })[0].attr('width') + 10;
+
+x += addButton(x, 290, "»»", "مشاهده‌ی رخ‌داد بعدی\n باید بازی در‌حال اجرا نباشد.",
+    () => {
+        return Site.runNext();
+    }, () => {
+        return !Site.paused || !Site.stated
+    })[0].attr('width') + 10;
+
+x += addButton(x, 290, "توقف", "توقف/اجرای بازی",
+    (button: RaphaelElement, text: RaphaelElement) => {
+        if (Site.paused) {
+            text.attr('text', 'توقف');
+            return Site.play();
+        } else {
+            text.attr('text', 'اجرا');
+            return Site.pause();
+        }
+    }, () => {
+        return !Site.stated
+    })[0].attr('width') + 10;
+
+x += addButton(x, 290, "««", "مشاهده‌ی رخ‌داد قبلی\n باید بازی در‌حال اجرا نباشد.",
+    () => {
+        return Site.prev();
+    }, () => {
+        return !Site.paused || !Site.stated
+    })[0].attr('width') + 10;
+
+x += addButton(x, 290, "«««", "مشاهده‌ی راند قبلی\n باید بازی در‌حال اجرا نباشد.",
+    () => {
+        return Site.prevToNearestRun();
+    }, () => {
+        return !Site.paused || !Site.stated
+    })[0].attr('width') + 10;
+
+x = 685;
+
+x += addButton(x, 335, " ‌  ‌  ‌ + ‌  ‌  ‌ ", "افزایش سرعت بازی\n باید بازی در‌حال اجرا نباشد.",
+    () => {
+        if (Site.eventTime <= 100)
+            return;
+        Site.eventTime -= 100;
+    }, () => {
+        return !Site.paused || !Site.stated
+    })[0].attr('width') + 10;
+x += addButton(x, 335, " ‌ ‌پـایــــــــــــــــان ‌ ‌", "کاهش سرعت بازی\n باید بازی در‌حال اجرا نباشد.",
+    () => {
+        while (Site.currentEvent < Site.game.events.length) {
+            Site.next();
+        }
+    }, () => {
+        return !Site.paused || !Site.stated
+    })[0].attr('width') + 10;
+
+x += addButton(x, 335, " ‌  ‌  ‌ - ‌  ‌  ‌ ", "کاهش سرعت بازی\n باید بازی در‌حال اجرا نباشد.",
+    () => {
+        if (Site.eventTime >= 3000)
+            return;
+        Site.eventTime += 100;
+    }, () => {
+        return !Site.paused || !Site.stated
+    })[0].attr('width') + 10;
 
 
+addButton(100, 300, "شـــــــــــــــــــروع بــــــــــــــــــــازی",
+    "برای شروع بازی کافی است خروجی سرور را در یک فایل متنی ذخیره کرده و انتخاب کنید",
+    (a: RaphaelElement, b: RaphaelElement) => {
+        let $input = $('<input />');
+        $input.attr('type', 'file');
+        $input.trigger('click');
+        $input.on('change', (event) => {
+            a.remove();
+            b.remove();
+            let reader: FileReader = new FileReader();
+            let f = event.target['files'][0];
+            reader.onload = (function (theFile) {
+                return function (e) {
+                    startGame(JSON.parse(e.target.result));
+                };
+            })(f);
+            reader.readAsText(f);
+        })
+
+    }, () => {
+        return Site.stated
+    });
+
+//$.getJSON('game.json').always((data) => {
+function startGame(data) {
+    Site.stated = true;
     let playerColors = ['#5ab97e', '#f2b179'];
 
     let game = new Game(
@@ -774,21 +984,7 @@ $.getJSON('game.json').always((data) => {
     }
 
 
-// create right menu:
-    Site.paper.image("assets/imgs/SoltoonGUI.png", 650, 0, 350, 225);
-
-    Site.paper.text(995, 260, 'تنظیمات:')
-        .attr({
-            'text-anchor': 'start',
-            'font-family': 'Samim',
-            'font-size': '32px',
-            'font-weight': 'bold'
-        });
-
-    Site.paper.rect(685, 300, 100, 30);
-    Site.paper.rect(895, 300, 100, 30);
-
-    Site.paper.text(995, 355, 'بازی‌کن «' + game.players[0].name + '»:')
+    Site.paper.text(995, 385, 'بازی‌کن «' + game.players[0].name + '»:')
         .attr({
             'text-anchor': 'start',
             'align': 'right',
@@ -798,34 +994,34 @@ $.getJSON('game.json').always((data) => {
             'fill': playerColors[0],
         });
 
-    Site.paper.text(965, 390, 'امتیاز:')
+    Site.paper.text(965, 425, 'امتیاز:')
         .attr({
             'text-anchor': 'start',
             'font-family': 'Samim',
             'font-size': '18px',
         });
-    game.players[0].scoreElement = Site.paper.text(850, 390, "" + game.players[0].score)
-        .attr({
-            'text-anchor': 'start',
-            'font-family': 'Samim',
-            'font-size': '18px',
-        });
-
-    Site.paper.text(965, 420, 'دارایی:')
-        .attr({
-            'text-anchor': 'start',
-            'font-family': 'Samim',
-            'font-size': '18px',
-        });
-    game.players[0].moneyElement = Site.paper.text(850, 420, "" + game.players[0].money)
+    game.players[0].scoreElement = Site.paper.text(850, 425, "" + game.players[0].score)
         .attr({
             'text-anchor': 'start',
             'font-family': 'Samim',
             'font-size': '18px',
         });
 
+    Site.paper.text(965, 455, 'دارایی:')
+        .attr({
+            'text-anchor': 'start',
+            'font-family': 'Samim',
+            'font-size': '18px',
+        });
+    game.players[0].moneyElement = Site.paper.text(850, 455, "" + game.players[0].money)
+        .attr({
+            'text-anchor': 'start',
+            'font-family': 'Samim',
+            'font-size': '18px',
+        });
 
-    Site.paper.text(995, 475, 'بازی‌کن «' + game.players[1].name + '»:')
+
+    Site.paper.text(995, 510, 'بازی‌کن «' + game.players[1].name + '»:')
         .attr({
             'text-anchor': 'start',
             'font-family': 'Samim',
@@ -834,26 +1030,27 @@ $.getJSON('game.json').always((data) => {
             'fill': playerColors[1],
         });
 
-    Site.paper.text(965, 510, 'امتیاز:')
-        .attr({
-            'text-anchor': 'start',
-            'font-family': 'Samim',
-            'font-size': '18px',
-        });
-    game.players[1].scoreElement = Site.paper.text(850, 510, "" + game.players[1].score)
+    Site.paper.text(965, 545, 'امتیاز:')
         .attr({
             'text-anchor': 'start',
             'font-family': 'Samim',
             'font-size': '18px',
         });
 
-    Site.paper.text(965, 540, 'دارایی:')
+    game.players[1].scoreElement = Site.paper.text(850, 545, "" + game.players[1].score)
         .attr({
             'text-anchor': 'start',
             'font-family': 'Samim',
             'font-size': '18px',
         });
-    game.players[1].moneyElement = Site.paper.text(850, 540, "" + game.players[1].money)
+
+    Site.paper.text(965, 575, 'دارایی:')
+        .attr({
+            'text-anchor': 'start',
+            'font-family': 'Samim',
+            'font-size': '18px',
+        });
+    game.players[1].moneyElement = Site.paper.text(850, 575, "" + game.players[1].money)
         .attr({
             'text-anchor': 'start',
             'font-family': 'Samim',
@@ -863,15 +1060,7 @@ $.getJSON('game.json').always((data) => {
 
     Site.game = game;
 
-    /*    let gameInterval = setInterval(function () {
-            if (currentEvent < game.events.length) {
-                game.events[currentEvent++].run();
-            }
-            else {
-                clearInterval(gameInterval);
-            }
+    Site.play();
+}
 
-        }, Site.eventTime);*/
-
-
-});
+//});
