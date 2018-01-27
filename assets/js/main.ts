@@ -771,16 +771,33 @@ Site.paper.text(995, 260, 'تنظیمات:')
 let x = 685;
 x += addButton(x, 290, "»»»", "مشاهده‌ی راند بعدی\n باید بازی در‌حال اجرا نباشد.",
     () => {
-        return Site.nextToNearestRun();
+        let x = Site.paused;
+        Site.pause();
+        if (x) {
+            Site.nextToNearestRun()
+        } else {
+            setTimeout(() => {
+                Site.nextToNearestRun();
+                Site.play();
+            }, Site.eventTime);
+        }
     }, () => {
-        return !Site.paused || !Site.stated
+        return !Site.stated
     })[0].attr('width') + 10;
 
 x += addButton(x, 290, "»»", "مشاهده‌ی رخ‌داد بعدی\n باید بازی در‌حال اجرا نباشد.",
     () => {
-        return Site.runNext();
+        let x = Site.paused;
+        Site.pause();
+        if (x) {
+            Site.next()
+        } else {
+            Site.next();
+            Site.play();
+
+        }
     }, () => {
-        return !Site.paused || !Site.stated
+        return !Site.stated
     })[0].attr('width') + 10;
 
 x += addButton(x, 290, "توقف", "توقف/اجرای بازی",
@@ -798,16 +815,34 @@ x += addButton(x, 290, "توقف", "توقف/اجرای بازی",
 
 x += addButton(x, 290, "««", "مشاهده‌ی رخ‌داد قبلی\n باید بازی در‌حال اجرا نباشد.",
     () => {
-        return Site.prev();
+        let x = Site.paused;
+        Site.pause();
+        if (x) {
+            Site.prev()
+        } else {
+            setTimeout(() => {
+                Site.prev();
+                Site.play();
+            }, Site.eventTime);
+        }
     }, () => {
-        return !Site.paused || !Site.stated
+        return !Site.stated
     })[0].attr('width') + 10;
 
 x += addButton(x, 290, "«««", "مشاهده‌ی راند قبلی\n باید بازی در‌حال اجرا نباشد.",
     () => {
-        return Site.prevToNearestRun();
+        let x = Site.paused;
+        Site.pause();
+        if (x) {
+            Site.prevToNearestRun()
+        } else {
+            setTimeout(() => {
+                Site.prevToNearestRun();
+                Site.play();
+            }, Site.eventTime);
+        }
     }, () => {
-        return !Site.paused || !Site.stated
+        return !Site.stated
     })[0].attr('width') + 10;
 
 x = 685;
@@ -818,15 +853,27 @@ x += addButton(x, 335, " ‌  ‌  ‌ + ‌  ‌  ‌ ", "افزایش سرعت
             return;
         Site.eventTime -= 100;
     }, () => {
-        return !Site.paused || !Site.stated
+        return !Site.stated
     })[0].attr('width') + 10;
 x += addButton(x, 335, " ‌ ‌پـایــــــــــــــــان ‌ ‌", "کاهش سرعت بازی\n باید بازی در‌حال اجرا نباشد.",
     () => {
-        while (Site.currentEvent < Site.game.events.length) {
-            Site.next();
+        let x = Site.paused;
+        Site.pause();
+        if (x) {
+            while (Site.currentEvent < Site.game.events.length) {
+                Site.next();
+            }
+        } else {
+            setTimeout(() => {
+                while (Site.currentEvent < Site.game.events.length) {
+                    Site.next();
+                }
+                Site.play();
+            }, Site.eventTime);
         }
+
     }, () => {
-        return !Site.paused || !Site.stated
+        return !Site.stated
     })[0].attr('width') + 10;
 
 x += addButton(x, 335, " ‌  ‌  ‌ - ‌  ‌  ‌ ", "کاهش سرعت بازی\n باید بازی در‌حال اجرا نباشد.",
@@ -835,7 +882,7 @@ x += addButton(x, 335, " ‌  ‌  ‌ - ‌  ‌  ‌ ", "کاهش سرعت ب�
             return;
         Site.eventTime += 100;
     }, () => {
-        return !Site.paused || !Site.stated
+        return !Site.stated
     })[0].attr('width') + 10;
 
 

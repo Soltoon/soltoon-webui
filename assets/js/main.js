@@ -647,14 +647,32 @@ Site.paper.text(995, 260, 'تنظیمات:')
 });
 var x = 685;
 x += addButton(x, 290, "»»»", "مشاهده‌ی راند بعدی\n باید بازی در‌حال اجرا نباشد.", function () {
-    return Site.nextToNearestRun();
+    var x = Site.paused;
+    Site.pause();
+    if (x) {
+        Site.nextToNearestRun();
+    }
+    else {
+        setTimeout(function () {
+            Site.nextToNearestRun();
+            Site.play();
+        }, Site.eventTime);
+    }
 }, function () {
-    return !Site.paused || !Site.stated;
+    return !Site.stated;
 })[0].attr('width') + 10;
 x += addButton(x, 290, "»»", "مشاهده‌ی رخ‌داد بعدی\n باید بازی در‌حال اجرا نباشد.", function () {
-    return Site.runNext();
+    var x = Site.paused;
+    Site.pause();
+    if (x) {
+        Site.next();
+    }
+    else {
+        Site.next();
+        Site.play();
+    }
 }, function () {
-    return !Site.paused || !Site.stated;
+    return !Site.stated;
 })[0].attr('width') + 10;
 x += addButton(x, 290, "توقف", "توقف/اجرای بازی", function (button, text) {
     if (Site.paused) {
@@ -669,14 +687,34 @@ x += addButton(x, 290, "توقف", "توقف/اجرای بازی", function (but
     return !Site.stated;
 })[0].attr('width') + 10;
 x += addButton(x, 290, "««", "مشاهده‌ی رخ‌داد قبلی\n باید بازی در‌حال اجرا نباشد.", function () {
-    return Site.prev();
+    var x = Site.paused;
+    Site.pause();
+    if (x) {
+        Site.prev();
+    }
+    else {
+        setTimeout(function () {
+            Site.prev();
+            Site.play();
+        }, Site.eventTime);
+    }
 }, function () {
-    return !Site.paused || !Site.stated;
+    return !Site.stated;
 })[0].attr('width') + 10;
 x += addButton(x, 290, "«««", "مشاهده‌ی راند قبلی\n باید بازی در‌حال اجرا نباشد.", function () {
-    return Site.prevToNearestRun();
+    var x = Site.paused;
+    Site.pause();
+    if (x) {
+        Site.prevToNearestRun();
+    }
+    else {
+        setTimeout(function () {
+            Site.prevToNearestRun();
+            Site.play();
+        }, Site.eventTime);
+    }
 }, function () {
-    return !Site.paused || !Site.stated;
+    return !Site.stated;
 })[0].attr('width') + 10;
 x = 685;
 x += addButton(x, 335, " ‌  ‌  ‌ + ‌  ‌  ‌ ", "افزایش سرعت بازی\n باید بازی در‌حال اجرا نباشد.", function () {
@@ -684,21 +722,33 @@ x += addButton(x, 335, " ‌  ‌  ‌ + ‌  ‌  ‌ ", "افزایش سرعت
         return;
     Site.eventTime -= 100;
 }, function () {
-    return !Site.paused || !Site.stated;
+    return !Site.stated;
 })[0].attr('width') + 10;
 x += addButton(x, 335, " ‌ ‌پـایــــــــــــــــان ‌ ‌", "کاهش سرعت بازی\n باید بازی در‌حال اجرا نباشد.", function () {
-    while (Site.currentEvent < Site.game.events.length) {
-        Site.next();
+    var x = Site.paused;
+    Site.pause();
+    if (x) {
+        while (Site.currentEvent < Site.game.events.length) {
+            Site.next();
+        }
+    }
+    else {
+        setTimeout(function () {
+            while (Site.currentEvent < Site.game.events.length) {
+                Site.next();
+            }
+            Site.play();
+        }, Site.eventTime);
     }
 }, function () {
-    return !Site.paused || !Site.stated;
+    return !Site.stated;
 })[0].attr('width') + 10;
 x += addButton(x, 335, " ‌  ‌  ‌ - ‌  ‌  ‌ ", "کاهش سرعت بازی\n باید بازی در‌حال اجرا نباشد.", function () {
     if (Site.eventTime >= 3000)
         return;
     Site.eventTime += 100;
 }, function () {
-    return !Site.paused || !Site.stated;
+    return !Site.stated;
 })[0].attr('width') + 10;
 addButton(100, 300, "شـــــــــــــــــــروع بــــــــــــــــــــازی", "برای شروع بازی کافی است خروجی سرور را در یک فایل متنی ذخیره کرده و انتخاب کنید", function (a, b) {
     var $input = $('<input />');
