@@ -6,7 +6,8 @@ class Site {
     static paperWidth: number = 1000;
     static paperHeight: number = 650;
     static paper: RaphaelPaper = Raphael("game-viewer", Site.paperWidth, Site.paperHeight);
-    static actionTime = 1000;
+    static eventTime = 1000;
+    static currentEvent = 0;
 
     static game: Game;
 
@@ -21,6 +22,24 @@ class Site {
             w2: this.cellWidth - 6 * this.cellOffset,
             h2: this.cellWidth - 6 * this.cellOffset
         };
+    }
+
+    static run(): void {
+        if (this.currentEvent < this.game.events.length) {
+            this.game.events[this.currentEvent++].run();
+        }
+    }
+
+    static next(): void {
+        if (this.currentEvent < this.game.events.length) {
+            this.game.events[this.currentEvent++].runWithoutAnimation();
+        }
+    }
+
+    static prev(): void {
+        if (this.currentEvent > 0) {
+            this.game.events[--this.currentEvent].rollback();
+        }
     }
 }
 
@@ -44,37 +63,41 @@ class Player {
         this.money = money;
     }
 
-    private change(elm: RaphaelElement, newVal: string): void {
+    private change(elm: RaphaelElement, newVal: string, noAnimation: boolean): void {
         let oldVal = elm.attr('text');
         if (newVal == oldVal)
             return;
-        let ch = (parseInt(newVal) - parseInt(oldVal));
-        let changeText: RaphaelElement = Site.paper.text(elm.attr('x'),
-            elm.attr('y'), ((ch > 0) ? '+' : '') + ch)
-            .attr({
-                'text-anchor': 'start',
-                'font-family': 'Samim',
-                'font-size': '18px',
+        if (noAnimation == false) {
+            let ch = (parseInt(newVal) - parseInt(oldVal));
+            let changeText: RaphaelElement = Site.paper.text(elm.attr('x'),
+                elm.attr('y'), ((ch > 0) ? '+' : '') + ch)
+                .attr({
+                    'text-anchor': 'start',
+                    'font-family': 'Samim',
+                    'font-size': '18px',
+                });
+            changeText.animate({
+                y: elm.attr('y') - 30,
+                opacity: 0
+            }, Site.eventTime / 4, 'linear', function () {
+                this.remove();
             });
-        changeText.animate({
-            y: elm.attr('y') - 30,
-            opacity: 0
-        }, Site.actionTime / 4, 'linear', function () {
-            this.remove();
-        });
+        }
         elm.attr({
             'text': newVal
         });
     }
 
-    changeMoney(newVal: number): void {
+    changeMoney(newVal: number, noAnimation: boolean = false): void {
         this.money = newVal;
-        return this.change(this.moneyElement, "" + newVal);
+
+        return this.change(this.moneyElement, "" + newVal, noAnimation);
     }
 
-    changeScore(newVal: number): void {
+    changeScore(newVal: number, noAnimation: boolean = false): void {
         this.score = newVal;
-        return this.change(this.scoreElement, "" + newVal);
+
+        return this.change(this.scoreElement, "" + newVal, noAnimation);
     }
 }
 
@@ -173,32 +196,86 @@ class Khadang {
     }
 }
 
-class Action {
+class GameEvent {
     type: string;
+    moneyChanges: object = {}; // player id -> new money
+    scoreChanges: object = {};
+    oldMoney: object = {};
+    oldScore: object = {};
+
+
+    addMoneyChanges(changes: object) {
+        for (let id in changes) {
+            this.addMoneyChange(parseInt(id), changes[id]);
+        }
+    }
+
+    addScoreChanges(changes: object) {
+        for (let id in changes) {
+            this.addScoreChange(parseInt(id), changes[id]);
+        }
+    }
+
+    addMoneyChange(playerId: number, newMoney: number): void {
+        this.moneyChanges[playerId] = newMoney;
+    }
+
+    addScoreChange(playerId: number, newScore: number): void {
+        this.scoreChanges[playerId] = newScore;
+    }
 
     constructor(type: string) {
         this.type = type;
     }
 
     run(): void {
+        for (let playerId in this.moneyChanges) {
+            let newMoney = this.moneyChanges[playerId];
+            this.oldMoney[playerId] = Site.game.getPlayerById(parseInt(playerId)).money;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(newMoney);
+        }
+
+        for (let playerId in this.scoreChanges) {
+            let newScore = this.scoreChanges[playerId];
+            this.oldScore[playerId] = Site.game.getPlayerById(parseInt(playerId)).score;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeScore(newScore);
+        }
+    }
+
+    rollback(): void {
+        for (let playerId in this.oldMoney) {
+            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(this.oldMoney[playerId], true);
+        }
+        for (let playerId in this.oldScore) {
+            Site.game.getPlayerById(parseInt("" + playerId)).changeScore(this.oldScore[playerId], true);
+        }
+    }
+
+    runWithoutAnimation(): void {
+        for (let playerId in this.moneyChanges) {
+            let newMoney = this.moneyChanges[playerId];
+            this.oldMoney[playerId] = Site.game.getPlayerById(parseInt(playerId)).money;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(newMoney, true);
+        }
+
+        for (let playerId in this.scoreChanges) {
+            let newScore = this.scoreChanges[playerId];
+            this.oldScore[playerId] = Site.game.getPlayerById(parseInt(playerId)).score;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeScore(newScore, true);
+        }
     }
 }
 
-class RoundAction extends Action {
+class RoundEvent extends GameEvent {
     number: number;
-    moneyChanges: object; // player id ->  new score
 
-    constructor(number: number, moneyChanges: object) {
+    constructor(number: number) {
         super("round");
         this.number = number;
-        this.moneyChanges = moneyChanges;
     }
 
     run(): void {
-        for (let playerId in this.moneyChanges) {
-            let newScore = this.moneyChanges[playerId];
-            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(newScore);
-        }
+        super.run();
         let mask = Site.paper.rect(0, 0, Site.gridWidth, Site.gridHeight)
             .attr({
                 'fill': 'rgba(0, 0, 0, 0.8)',
@@ -213,28 +290,36 @@ class RoundAction extends Action {
             });
         mask.animate({
             opacity: 1
-        }, 200 / 2000 * Site.actionTime);
+        }, 200 / 2000 * Site.eventTime);
         maskText.animate({
             opacity: 1
-        }, 200 / 2000 * Site.actionTime);
+        }, 200 / 2000 * Site.eventTime);
 
         setTimeout(function () {
             mask.stop().animate({
                 opacity: 0
-            }, 200 / 2000 * Site.actionTime, "linear", function () {
+            }, 200 / 2000 * Site.eventTime, "linear", function () {
                 this.remove();
             });
             maskText.stop().animate({
                 opacity: 0
-            }, 200 / 2000 * Site.actionTime, "linear", function () {
+            }, 200 / 2000 * Site.eventTime, "linear", function () {
                 this.remove();
             });
 
-        }, 500 / 2000 * Site.actionTime);
+        }, 500 / 2000 * Site.eventTime);
+    }
+
+    rollback(): void {
+        super.rollback();
+    }
+
+    runWithoutAnimation(): void {
+        super.runWithoutAnimation();
     }
 }
 
-class AddAction extends Action {
+class AddEvent extends GameEvent {
     khadangId: number;
     khadangType: string;
     owner: Player;
@@ -255,7 +340,7 @@ class AddAction extends Action {
         this.cost = cost;
     }
 
-    run(): void {
+    private addKhadang(): Khadang {
         let pos = Site.getCellPos(this.position.x, this.position.y); // TODO: fix it
         let khadang: Khadang = new Khadang(
             this.khadangType,
@@ -264,9 +349,9 @@ class AddAction extends Action {
             this.health,
         );
 
-        let player = Site.game.getPlayerById(this.owner.id);
-        player.changeMoney(player.money - this.cost);
-        player.changeScore(player.score + this.addToScore);
+        // let player = Site.game.getPlayerById(this.owner.id);
+        // player.changeMoney(player.money - this.cost);
+        // player.changeScore(player.score + this.addToScore);
 
         khadang.element.push(Site.paper.rect(pos.x, pos.y,
             pos.w, pos.h).attr({
@@ -284,19 +369,43 @@ class AddAction extends Action {
             'stroke': 'transparent'
         });
         khadang.element.push(khadang.healthBar);
+        return khadang;
+    }
+
+    run(): void {
+        super.run();
+
+        let khadang = this.addKhadang();
+
         khadang.element.transform('S0.1, 0.1');
         khadang.element.animate({
             'transform': "S1, 1"
-        }, 200 / 2000 * Site.actionTime);
+        }, 200 / 2000 * Site.eventTime);
         KhadangHelper.khadangs.push(khadang);
+    }
+
+    runWithoutAnimation(): void {
+        super.runWithoutAnimation();
+
+        let khadang = this.addKhadang();
+
+        KhadangHelper.khadangs.push(khadang);
+    }
+
+    rollback(): void {
+        super.rollback();
+        let id = KhadangHelper.getId(this.position);
+        KhadangHelper.khadangs[id].element.remove();
+        delete KhadangHelper.khadangs[id];
     }
 }
 
-class ShootAction extends Action {
+class ShootEvent extends GameEvent {
     from: GamePosition;
     to: GamePosition;
     damage: number;
-    penaltyScore: number = 0;
+    oldHealth: number = 0;
+    oldKhadang: Khadang = null;
 
     constructor(from: GamePosition, to: GamePosition) {
         super("shoot");
@@ -305,6 +414,7 @@ class ShootAction extends Action {
     }
 
     run(): void {
+        super.run();
         let from = Site.getCellPos(this.from.x, this.from.y);
         let to = Site.getCellPos(this.to.x, this.to.y);
         let attackLine = Site.paper.path("M" + (from.x + (from.w / 2)) + "," + (from.y + (from.h / 2)) +
@@ -315,69 +425,129 @@ class ShootAction extends Action {
             'stroke-width': 2
         });
         let fromKhadang = KhadangHelper.get(this.from);
-        let toKhadang = KhadangHelper.get(this.to);
-        if (fromKhadang == null) {
-            console.error("fromKhadang is null!!");
-        }
+        let toKhadangId = KhadangHelper.getId(this.to);
+        let toKhadang = KhadangHelper.khadangs[toKhadangId];
+
         fromKhadang.element.animate({
-            'transform': "S1.2, 1.2"
-        }, 200 / 2000 * Site.actionTime);
+            'transform': "S1.3, 1.3"
+        }, 200 / 2000 * Site.eventTime);
 
         if (toKhadang != null) {
+            this.oldHealth = toKhadang.health;
             toKhadang.health -= this.damage;
             if (toKhadang.health < 0)
                 toKhadang.health = 0;
 
-            KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)] = toKhadang;
+            KhadangHelper.khadangs[toKhadangId] = toKhadang;
 
             toKhadang.element.animate({
-                'transform': "S0.9, 0.9"
-            }, 200 / 2000 * Site.actionTime).innerShadow(10, 0, 0, "red", 0.7);
+                'transform': "S0.8, 0.8"
+            }, 200 / 2000 * Site.eventTime).innerShadow(10, 0, 0, "red", 0.7);
 
 
             toKhadang.healthBar.animate({
                 'width': (toKhadang.health / toKhadang.getMaxHealth()) * (Site.getCellPos(this.to.x, this.to.y).w)
-            }, 1000 / 2000 * Site.actionTime);
+            }, 1000 / 2000 * Site.eventTime);
+        }
+
+        if (toKhadang != null && toKhadang.health == 0) {
+            this.oldKhadang = toKhadang;
         }
 
         setTimeout(() => {
             fromKhadang.element.animate({
                 'transform': "S1, 1"
-            }, 200 / 2000 * Site.actionTime);
+            }, 200 / 2000 * Site.eventTime);
             if (toKhadang != null) {
+                toKhadang.element.innerShadow("none");
                 if (toKhadang.health != 0) {
                     // back it to normal size
-                    KhadangHelper.get(this.to).element.animate({
+                    toKhadang.element.animate({
                         'transform': "S1, 1"
-                    }, 200 / 2000 * Site.actionTime).innerShadow("none");
+                    }, 200 / 2000 * Site.eventTime)
                 } else {
                     // remove it
-                    let player = Site.game.getPlayerById(toKhadang.owner.id);
-                    player.changeScore(player.score - this.penaltyScore);
 
-
-                    KhadangHelper.get(this.to).element.animate({
+                    toKhadang.element.animate({
                         'transform': "S0, 0"
-                    }, 200 / 2000 * Site.actionTime, function () {
-                        this.remove();
-                        // TODO: change score of owner
-                        delete KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)];
+                    }, 200 / 2000 * Site.eventTime, function () {
+                        this.hide();
+                        delete KhadangHelper.khadangs[toKhadangId];
                     });
                 }
             }
 
             attackLine.animate({
                 'opacity': 0
-            }, 200 / 2000 * Site.actionTime, "linear", function () {
+            }, 200 / 2000 * Site.eventTime, "linear", function () {
                 this.remove();
             });
 
-        }, 800 / 2000 * Site.actionTime);
+        }, 800 / 2000 * Site.eventTime);
+
+    }
+
+
+    runWithoutAnimation(): void {
+        super.runWithoutAnimation();
+        let toKhadang = KhadangHelper.get(this.to);
+
+        if (toKhadang != null) {
+            this.oldHealth = toKhadang.health;
+            toKhadang.health -= this.damage;
+            if (toKhadang.health < 0)
+                toKhadang.health = 0;
+
+            KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)] = toKhadang;
+
+
+            toKhadang.healthBar.attr({
+                'width': (toKhadang.health / toKhadang.getMaxHealth()) * (Site.getCellPos(this.to.x, this.to.y).w)
+            });
+        }
+
+        if (toKhadang != null && toKhadang.health == 0) {
+            this.oldKhadang = toKhadang;
+        }
+
+        if (toKhadang != null) {
+            if (toKhadang.health == 0) {
+                // remove it
+
+                toKhadang.element.hide();
+                delete KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)];
+            }
+        }
+
+    }
+
+
+    rollback(): void {
+        super.rollback();
+
+        if (this.oldKhadang != null) {
+            this.oldKhadang.element.transform("S1, 1");
+            this.oldKhadang.element.show();
+            KhadangHelper.khadangs.push(this.oldKhadang);
+        }
+
+        let toKhadang = KhadangHelper.get(this.to);
+
+        if (toKhadang != null) {
+            toKhadang.health = this.oldHealth;
+
+            KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)] = toKhadang;
+
+
+            toKhadang.healthBar.attr({
+                'width': (toKhadang.health / toKhadang.getMaxHealth()) * (Site.getCellPos(this.to.x, this.to.y).w)
+            });
+        }
 
     }
 }
 
-class MoveAction extends Action {
+class MoveEvent extends GameEvent {
     position: GamePosition;
     direction: Direction;
 
@@ -387,8 +557,7 @@ class MoveAction extends Action {
         this.direction = direction;
     }
 
-    run(): void {
-        let id = KhadangHelper.getId(this.position);
+    private move(animate: boolean, rollback: boolean = false): void {
         let dx = 0, dy = 0;
         switch (this.direction) {
             case Direction.UP:
@@ -404,17 +573,59 @@ class MoveAction extends Action {
                 dx++;
                 break;
         }
+        let x = this.position.x, y = this.position.y;
         let nx = this.position.x + dx, ny = this.position.y + dy;
         let from = Site.getCellPos(this.position.x, this.position.y);
         let to = Site.getCellPos(nx, ny);
+
+
+        if (rollback) {
+            let temp;
+            temp = x;
+            x = nx;
+            nx = temp;
+
+            temp = y;
+            y = ny;
+            ny = temp;
+
+            temp = from;
+            from = to;
+            to = temp;
+        }
+
+        let id = KhadangHelper.getId(new GamePosition(x, y));
+
         KhadangHelper.khadangs[id].position.x = nx;
         KhadangHelper.khadangs[id].position.y = ny;
         KhadangHelper.khadangs[id].element.forEach(function (e) {
-            e.animate({
-                x: e.attr('x') + to.x2 - from.x2,
-                y: e.attr('y') + to.y2 - from.y2
-            }, 500 / 2000 * Site.actionTime);
+            if (animate) {
+                e.animate({
+                    x: e.attr('x') + to.x2 - from.x2,
+                    y: e.attr('y') + to.y2 - from.y2
+                }, 500 / 2000 * Site.eventTime);
+            } else {
+                e.attr({
+                    x: e.attr('x') + to.x2 - from.x2,
+                    y: e.attr('y') + to.y2 - from.y2
+                });
+            }
         });
+    }
+
+    run(): void {
+        super.run();
+        this.move(true);
+    }
+
+    runWithoutAnimation(): void {
+        super.runWithoutAnimation();
+        this.move(false);
+    }
+
+    rollback(): void {
+        super.rollback();
+        this.move(false, true);
     }
 }
 
@@ -422,13 +633,13 @@ class Game {
     map: Map;
     rounds: number;
     players: Player[];
-    actions: Action[];
+    events: GameEvent[];
 
-    constructor(map: Map, rounds: number, players: Player[], actions: Action[]) {
+    constructor(map: Map, rounds: number, players: Player[], events: GameEvent[]) {
         this.map = map;
         this.rounds = rounds;
         this.players = players;
-        this.actions = actions;
+        this.events = events;
     }
 
     getPlayerById(id: number): Player {
@@ -442,7 +653,7 @@ class Game {
 
 
 $.getJSON('game.json').always((data) => {
-    //console.log(data);
+
 
     let playerColors = ['#5ab97e', '#f2b179'];
 
@@ -451,7 +662,8 @@ $.getJSON('game.json').always((data) => {
         data.misc.rounds,
         [],
         []);
-    let lastShootAction = null;
+    let lastShootEvent = null;
+    let moneyChange: object = {}, scoreChange: object = {};
 
     for (let eventIterator in data.events) {
         let event = data.events[eventIterator];
@@ -466,13 +678,13 @@ $.getJSON('game.json').always((data) => {
                 ));
                 break;
             case "ROUND_START":
-                game.actions.push(new RoundAction(
-                    event.round,
-                    event.moneyByPlayer
+                game.events.push(new RoundEvent(
+                    event.round
                 ));
+                game.events[game.events.length - 1].addMoneyChanges(event.moneyByPlayer);
                 break;
             case "AGENT_ADD":
-                game.actions.push(new AddAction(
+                game.events.push(new AddEvent(
                     event.agent,
                     event.agentType,
                     game.getPlayerById(event.player),
@@ -490,33 +702,46 @@ $.getJSON('game.json').always((data) => {
                     direction = Direction.LEFT;
                 if (event.toY == event.fromY + 1)
                     direction = Direction.DOWN;
-                game.actions.push(new MoveAction(
+                game.events.push(new MoveEvent(
                     new GamePosition(event.fromX, event.fromY),
                     direction
                 ));
                 break;
             case "AGENT_SHOOT":
-                lastShootAction = new ShootAction(
+                lastShootEvent = new ShootEvent(
                     new GamePosition(event.x, event.y),
                     new GamePosition(event.targetX, event.targetY));
 
                 break;
             case "AGENT_DAMAGED":
-                if (lastShootAction != null) {
-                    lastShootAction.damage = event.damage;
-                    game.actions.push(lastShootAction);
-                    lastShootAction = null;
+                if (lastShootEvent != null) {
+                    lastShootEvent.damage = event.damage;
+                    game.events.push(lastShootEvent);
+                    lastShootEvent = null;
                 }
                 break;
             case "AGENT_DIE":
-                if (lastShootAction != null) {
-                    lastShootAction.damage = 100000;
-                    lastShootAction.penaltyScore = event.penalty;
-                    game.actions.push(lastShootAction);
-                    lastShootAction = null;
+                if (lastShootEvent != null) {
+                    lastShootEvent.damage = 100000;
+                    lastShootEvent.penaltyScore = event.penalty;
+                    game.events.push(lastShootEvent);
+                    lastShootEvent = null;
                 }
                 break;
+            case "AGENT_CHANGE_SCORE":
+                scoreChange[event.player] = event.finalScore;
+                break;
+            case "AGENT_CHANGE_MONEY":
+                moneyChange[event.player] = event.finalMoney;
+                break;
+        }
+        if (event.eventType != 'AGENT_CHANGE_SCORE' && event.eventType != 'AGENT_CHANGE_MONEY' &&
+            game.events.length > 0) {
 
+            game.events[game.events.length - 1].addMoneyChanges(moneyChange);
+            game.events[game.events.length - 1].addScoreChanges(scoreChange);
+            moneyChange = {};
+            scoreChange = {};
         }
     }
 
@@ -638,18 +863,15 @@ $.getJSON('game.json').always((data) => {
 
     Site.game = game;
 
+    /*    let gameInterval = setInterval(function () {
+            if (currentEvent < game.events.length) {
+                game.events[currentEvent++].run();
+            }
+            else {
+                clearInterval(gameInterval);
+            }
 
-    let currentAction = 0;
-
-    let gameInterval = setInterval(function () {
-        if (currentAction < game.actions.length) {
-            game.actions[currentAction++].run();
-        }
-        else {
-            clearInterval(gameInterval);
-        }
-
-    }, Site.actionTime);
+        }, Site.eventTime);*/
 
 
 });

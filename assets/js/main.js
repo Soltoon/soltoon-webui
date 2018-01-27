@@ -23,10 +23,26 @@ var Site = /** @class */ (function () {
             h2: this.cellWidth - 6 * this.cellOffset
         };
     };
+    Site.run = function () {
+        if (this.currentEvent < this.game.events.length) {
+            this.game.events[this.currentEvent++].run();
+        }
+    };
+    Site.next = function () {
+        if (this.currentEvent < this.game.events.length) {
+            this.game.events[this.currentEvent++].runWithoutAnimation();
+        }
+    };
+    Site.prev = function () {
+        if (this.currentEvent > 0) {
+            this.game.events[--this.currentEvent].rollback();
+        }
+    };
     Site.paperWidth = 1000;
     Site.paperHeight = 650;
     Site.paper = Raphael("game-viewer", Site.paperWidth, Site.paperHeight);
-    Site.actionTime = 1000;
+    Site.eventTime = 1000;
+    Site.currentEvent = 0;
     return Site;
 }());
 Site.paper.setViewBox(0, 0, Site.paperWidth, Site.paperHeight, true);
@@ -43,34 +59,38 @@ var Player = /** @class */ (function () {
         this.score = score;
         this.money = money;
     }
-    Player.prototype.change = function (elm, newVal) {
+    Player.prototype.change = function (elm, newVal, noAnimation) {
         var oldVal = elm.attr('text');
         if (newVal == oldVal)
             return;
-        var ch = (parseInt(newVal) - parseInt(oldVal));
-        var changeText = Site.paper.text(elm.attr('x'), elm.attr('y'), ((ch > 0) ? '+' : '') + ch)
-            .attr({
-            'text-anchor': 'start',
-            'font-family': 'Samim',
-            'font-size': '18px',
-        });
-        changeText.animate({
-            y: elm.attr('y') - 30,
-            opacity: 0
-        }, Site.actionTime / 4, 'linear', function () {
-            this.remove();
-        });
+        if (noAnimation == false) {
+            var ch = (parseInt(newVal) - parseInt(oldVal));
+            var changeText = Site.paper.text(elm.attr('x'), elm.attr('y'), ((ch > 0) ? '+' : '') + ch)
+                .attr({
+                'text-anchor': 'start',
+                'font-family': 'Samim',
+                'font-size': '18px',
+            });
+            changeText.animate({
+                y: elm.attr('y') - 30,
+                opacity: 0
+            }, Site.eventTime / 4, 'linear', function () {
+                this.remove();
+            });
+        }
         elm.attr({
             'text': newVal
         });
     };
-    Player.prototype.changeMoney = function (newVal) {
+    Player.prototype.changeMoney = function (newVal, noAnimation) {
+        if (noAnimation === void 0) { noAnimation = false; }
         this.money = newVal;
-        return this.change(this.moneyElement, "" + newVal);
+        return this.change(this.moneyElement, "" + newVal, noAnimation);
     };
-    Player.prototype.changeScore = function (newVal) {
+    Player.prototype.changeScore = function (newVal, noAnimation) {
+        if (noAnimation === void 0) { noAnimation = false; }
         this.score = newVal;
-        return this.change(this.scoreElement, "" + newVal);
+        return this.change(this.scoreElement, "" + newVal, noAnimation);
     };
     return Player;
 }());
@@ -154,27 +174,73 @@ var Khadang = /** @class */ (function () {
     };
     return Khadang;
 }());
-var Action = /** @class */ (function () {
-    function Action(type) {
+var GameEvent = /** @class */ (function () {
+    function GameEvent(type) {
+        this.moneyChanges = {}; // player id -> new money
+        this.scoreChanges = {};
+        this.oldMoney = {};
+        this.oldScore = {};
         this.type = type;
     }
-    Action.prototype.run = function () {
+    GameEvent.prototype.addMoneyChanges = function (changes) {
+        for (var id in changes) {
+            this.addMoneyChange(parseInt(id), changes[id]);
+        }
     };
-    return Action;
+    GameEvent.prototype.addScoreChanges = function (changes) {
+        for (var id in changes) {
+            this.addScoreChange(parseInt(id), changes[id]);
+        }
+    };
+    GameEvent.prototype.addMoneyChange = function (playerId, newMoney) {
+        this.moneyChanges[playerId] = newMoney;
+    };
+    GameEvent.prototype.addScoreChange = function (playerId, newScore) {
+        this.scoreChanges[playerId] = newScore;
+    };
+    GameEvent.prototype.run = function () {
+        for (var playerId in this.moneyChanges) {
+            var newMoney = this.moneyChanges[playerId];
+            this.oldMoney[playerId] = Site.game.getPlayerById(parseInt(playerId)).money;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(newMoney);
+        }
+        for (var playerId in this.scoreChanges) {
+            var newScore = this.scoreChanges[playerId];
+            this.oldScore[playerId] = Site.game.getPlayerById(parseInt(playerId)).score;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeScore(newScore);
+        }
+    };
+    GameEvent.prototype.rollback = function () {
+        for (var playerId in this.oldMoney) {
+            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(this.oldMoney[playerId], true);
+        }
+        for (var playerId in this.oldScore) {
+            Site.game.getPlayerById(parseInt("" + playerId)).changeScore(this.oldScore[playerId], true);
+        }
+    };
+    GameEvent.prototype.runWithoutAnimation = function () {
+        for (var playerId in this.moneyChanges) {
+            var newMoney = this.moneyChanges[playerId];
+            this.oldMoney[playerId] = Site.game.getPlayerById(parseInt(playerId)).money;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(newMoney, true);
+        }
+        for (var playerId in this.scoreChanges) {
+            var newScore = this.scoreChanges[playerId];
+            this.oldScore[playerId] = Site.game.getPlayerById(parseInt(playerId)).score;
+            Site.game.getPlayerById(parseInt("" + playerId)).changeScore(newScore, true);
+        }
+    };
+    return GameEvent;
 }());
-var RoundAction = /** @class */ (function (_super) {
-    __extends(RoundAction, _super);
-    function RoundAction(number, moneyChanges) {
+var RoundEvent = /** @class */ (function (_super) {
+    __extends(RoundEvent, _super);
+    function RoundEvent(number) {
         var _this = _super.call(this, "round") || this;
         _this.number = number;
-        _this.moneyChanges = moneyChanges;
         return _this;
     }
-    RoundAction.prototype.run = function () {
-        for (var playerId in this.moneyChanges) {
-            var newScore = this.moneyChanges[playerId];
-            Site.game.getPlayerById(parseInt("" + playerId)).changeMoney(newScore);
-        }
+    RoundEvent.prototype.run = function () {
+        _super.prototype.run.call(this);
         var mask = Site.paper.rect(0, 0, Site.gridWidth, Site.gridHeight)
             .attr({
             'fill': 'rgba(0, 0, 0, 0.8)',
@@ -189,28 +255,34 @@ var RoundAction = /** @class */ (function (_super) {
         });
         mask.animate({
             opacity: 1
-        }, 200 / 2000 * Site.actionTime);
+        }, 200 / 2000 * Site.eventTime);
         maskText.animate({
             opacity: 1
-        }, 200 / 2000 * Site.actionTime);
+        }, 200 / 2000 * Site.eventTime);
         setTimeout(function () {
             mask.stop().animate({
                 opacity: 0
-            }, 200 / 2000 * Site.actionTime, "linear", function () {
+            }, 200 / 2000 * Site.eventTime, "linear", function () {
                 this.remove();
             });
             maskText.stop().animate({
                 opacity: 0
-            }, 200 / 2000 * Site.actionTime, "linear", function () {
+            }, 200 / 2000 * Site.eventTime, "linear", function () {
                 this.remove();
             });
-        }, 500 / 2000 * Site.actionTime);
+        }, 500 / 2000 * Site.eventTime);
     };
-    return RoundAction;
-}(Action));
-var AddAction = /** @class */ (function (_super) {
-    __extends(AddAction, _super);
-    function AddAction(khadangId, khadangType, owner, position, health, addToScore, cost) {
+    RoundEvent.prototype.rollback = function () {
+        _super.prototype.rollback.call(this);
+    };
+    RoundEvent.prototype.runWithoutAnimation = function () {
+        _super.prototype.runWithoutAnimation.call(this);
+    };
+    return RoundEvent;
+}(GameEvent));
+var AddEvent = /** @class */ (function (_super) {
+    __extends(AddEvent, _super);
+    function AddEvent(khadangId, khadangType, owner, position, health, addToScore, cost) {
         var _this = _super.call(this, "add") || this;
         _this.khadangId = khadangId;
         _this.khadangType = khadangType;
@@ -221,12 +293,12 @@ var AddAction = /** @class */ (function (_super) {
         _this.cost = cost;
         return _this;
     }
-    AddAction.prototype.run = function () {
+    AddEvent.prototype.addKhadang = function () {
         var pos = Site.getCellPos(this.position.x, this.position.y); // TODO: fix it
         var khadang = new Khadang(this.khadangType, this.owner, this.position, this.health);
-        var player = Site.game.getPlayerById(this.owner.id);
-        player.changeMoney(player.money - this.cost);
-        player.changeScore(player.score + this.addToScore);
+        // let player = Site.game.getPlayerById(this.owner.id);
+        // player.changeMoney(player.money - this.cost);
+        // player.changeScore(player.score + this.addToScore);
         khadang.element.push(Site.paper.rect(pos.x, pos.y, pos.w, pos.h).attr({
             'fill': khadang.owner.color,
             'stroke': 'rgba(0,0,0,0)'
@@ -237,25 +309,42 @@ var AddAction = /** @class */ (function (_super) {
             'stroke': 'transparent'
         });
         khadang.element.push(khadang.healthBar);
+        return khadang;
+    };
+    AddEvent.prototype.run = function () {
+        _super.prototype.run.call(this);
+        var khadang = this.addKhadang();
         khadang.element.transform('S0.1, 0.1');
         khadang.element.animate({
             'transform': "S1, 1"
-        }, 200 / 2000 * Site.actionTime);
+        }, 200 / 2000 * Site.eventTime);
         KhadangHelper.khadangs.push(khadang);
     };
-    return AddAction;
-}(Action));
-var ShootAction = /** @class */ (function (_super) {
-    __extends(ShootAction, _super);
-    function ShootAction(from, to) {
+    AddEvent.prototype.runWithoutAnimation = function () {
+        _super.prototype.runWithoutAnimation.call(this);
+        var khadang = this.addKhadang();
+        KhadangHelper.khadangs.push(khadang);
+    };
+    AddEvent.prototype.rollback = function () {
+        _super.prototype.rollback.call(this);
+        var id = KhadangHelper.getId(this.position);
+        KhadangHelper.khadangs[id].element.remove();
+        delete KhadangHelper.khadangs[id];
+    };
+    return AddEvent;
+}(GameEvent));
+var ShootEvent = /** @class */ (function (_super) {
+    __extends(ShootEvent, _super);
+    function ShootEvent(from, to) {
         var _this = _super.call(this, "shoot") || this;
-        _this.penaltyScore = 0;
+        _this.oldHealth = 0;
+        _this.oldKhadang = null;
         _this.from = from;
         _this.to = to;
         return _this;
     }
-    ShootAction.prototype.run = function () {
-        var _this = this;
+    ShootEvent.prototype.run = function () {
+        _super.prototype.run.call(this);
         var from = Site.getCellPos(this.from.x, this.from.y);
         var to = Site.getCellPos(this.to.x, this.to.y);
         var attackLine = Site.paper.path("M" + (from.x + (from.w / 2)) + "," + (from.y + (from.h / 2)) +
@@ -265,68 +354,108 @@ var ShootAction = /** @class */ (function (_super) {
             'stroke-width': 2
         });
         var fromKhadang = KhadangHelper.get(this.from);
-        var toKhadang = KhadangHelper.get(this.to);
-        if (fromKhadang == null) {
-            console.error("fromKhadang is null!!");
-        }
+        var toKhadangId = KhadangHelper.getId(this.to);
+        var toKhadang = KhadangHelper.khadangs[toKhadangId];
         fromKhadang.element.animate({
-            'transform': "S1.2, 1.2"
-        }, 200 / 2000 * Site.actionTime);
+            'transform': "S1.3, 1.3"
+        }, 200 / 2000 * Site.eventTime);
         if (toKhadang != null) {
+            this.oldHealth = toKhadang.health;
             toKhadang.health -= this.damage;
             if (toKhadang.health < 0)
                 toKhadang.health = 0;
-            KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)] = toKhadang;
+            KhadangHelper.khadangs[toKhadangId] = toKhadang;
             toKhadang.element.animate({
-                'transform': "S0.9, 0.9"
-            }, 200 / 2000 * Site.actionTime).innerShadow(10, 0, 0, "red", 0.7);
+                'transform': "S0.8, 0.8"
+            }, 200 / 2000 * Site.eventTime).innerShadow(10, 0, 0, "red", 0.7);
             toKhadang.healthBar.animate({
                 'width': (toKhadang.health / toKhadang.getMaxHealth()) * (Site.getCellPos(this.to.x, this.to.y).w)
-            }, 1000 / 2000 * Site.actionTime);
+            }, 1000 / 2000 * Site.eventTime);
+        }
+        if (toKhadang != null && toKhadang.health == 0) {
+            this.oldKhadang = toKhadang;
         }
         setTimeout(function () {
             fromKhadang.element.animate({
                 'transform': "S1, 1"
-            }, 200 / 2000 * Site.actionTime);
+            }, 200 / 2000 * Site.eventTime);
             if (toKhadang != null) {
+                toKhadang.element.innerShadow("none");
                 if (toKhadang.health != 0) {
                     // back it to normal size
-                    KhadangHelper.get(_this.to).element.animate({
+                    toKhadang.element.animate({
                         'transform': "S1, 1"
-                    }, 200 / 2000 * Site.actionTime).innerShadow("none");
+                    }, 200 / 2000 * Site.eventTime);
                 }
                 else {
                     // remove it
-                    var player = Site.game.getPlayerById(toKhadang.owner.id);
-                    player.changeScore(player.score - _this.penaltyScore);
-                    KhadangHelper.get(_this.to).element.animate({
+                    toKhadang.element.animate({
                         'transform': "S0, 0"
-                    }, 200 / 2000 * Site.actionTime, function () {
-                        this.remove();
-                        // TODO: change score of owner
-                        delete KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)];
+                    }, 200 / 2000 * Site.eventTime, function () {
+                        this.hide();
+                        delete KhadangHelper.khadangs[toKhadangId];
                     });
                 }
             }
             attackLine.animate({
                 'opacity': 0
-            }, 200 / 2000 * Site.actionTime, "linear", function () {
+            }, 200 / 2000 * Site.eventTime, "linear", function () {
                 this.remove();
             });
-        }, 800 / 2000 * Site.actionTime);
+        }, 800 / 2000 * Site.eventTime);
     };
-    return ShootAction;
-}(Action));
-var MoveAction = /** @class */ (function (_super) {
-    __extends(MoveAction, _super);
-    function MoveAction(position, direction) {
+    ShootEvent.prototype.runWithoutAnimation = function () {
+        _super.prototype.runWithoutAnimation.call(this);
+        var toKhadang = KhadangHelper.get(this.to);
+        if (toKhadang != null) {
+            this.oldHealth = toKhadang.health;
+            toKhadang.health -= this.damage;
+            if (toKhadang.health < 0)
+                toKhadang.health = 0;
+            KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)] = toKhadang;
+            toKhadang.healthBar.attr({
+                'width': (toKhadang.health / toKhadang.getMaxHealth()) * (Site.getCellPos(this.to.x, this.to.y).w)
+            });
+        }
+        if (toKhadang != null && toKhadang.health == 0) {
+            this.oldKhadang = toKhadang;
+        }
+        if (toKhadang != null) {
+            if (toKhadang.health == 0) {
+                // remove it
+                toKhadang.element.hide();
+                delete KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)];
+            }
+        }
+    };
+    ShootEvent.prototype.rollback = function () {
+        _super.prototype.rollback.call(this);
+        if (this.oldKhadang != null) {
+            this.oldKhadang.element.transform("S1, 1");
+            this.oldKhadang.element.show();
+            KhadangHelper.khadangs.push(this.oldKhadang);
+        }
+        var toKhadang = KhadangHelper.get(this.to);
+        if (toKhadang != null) {
+            toKhadang.health = this.oldHealth;
+            KhadangHelper.khadangs[KhadangHelper.getId(toKhadang.position)] = toKhadang;
+            toKhadang.healthBar.attr({
+                'width': (toKhadang.health / toKhadang.getMaxHealth()) * (Site.getCellPos(this.to.x, this.to.y).w)
+            });
+        }
+    };
+    return ShootEvent;
+}(GameEvent));
+var MoveEvent = /** @class */ (function (_super) {
+    __extends(MoveEvent, _super);
+    function MoveEvent(position, direction) {
         var _this = _super.call(this, "move") || this;
         _this.position = position;
         _this.direction = direction;
         return _this;
     }
-    MoveAction.prototype.run = function () {
-        var id = KhadangHelper.getId(this.position);
+    MoveEvent.prototype.move = function (animate, rollback) {
+        if (rollback === void 0) { rollback = false; }
         var dx = 0, dy = 0;
         switch (this.direction) {
             case Direction.UP:
@@ -342,26 +471,60 @@ var MoveAction = /** @class */ (function (_super) {
                 dx++;
                 break;
         }
+        var x = this.position.x, y = this.position.y;
         var nx = this.position.x + dx, ny = this.position.y + dy;
         var from = Site.getCellPos(this.position.x, this.position.y);
         var to = Site.getCellPos(nx, ny);
+        if (rollback) {
+            var temp = void 0;
+            temp = x;
+            x = nx;
+            nx = temp;
+            temp = y;
+            y = ny;
+            ny = temp;
+            temp = from;
+            from = to;
+            to = temp;
+        }
+        var id = KhadangHelper.getId(new GamePosition(x, y));
         KhadangHelper.khadangs[id].position.x = nx;
         KhadangHelper.khadangs[id].position.y = ny;
         KhadangHelper.khadangs[id].element.forEach(function (e) {
-            e.animate({
-                x: e.attr('x') + to.x2 - from.x2,
-                y: e.attr('y') + to.y2 - from.y2
-            }, 500 / 2000 * Site.actionTime);
+            if (animate) {
+                e.animate({
+                    x: e.attr('x') + to.x2 - from.x2,
+                    y: e.attr('y') + to.y2 - from.y2
+                }, 500 / 2000 * Site.eventTime);
+            }
+            else {
+                e.attr({
+                    x: e.attr('x') + to.x2 - from.x2,
+                    y: e.attr('y') + to.y2 - from.y2
+                });
+            }
         });
     };
-    return MoveAction;
-}(Action));
+    MoveEvent.prototype.run = function () {
+        _super.prototype.run.call(this);
+        this.move(true);
+    };
+    MoveEvent.prototype.runWithoutAnimation = function () {
+        _super.prototype.runWithoutAnimation.call(this);
+        this.move(false);
+    };
+    MoveEvent.prototype.rollback = function () {
+        _super.prototype.rollback.call(this);
+        this.move(false, true);
+    };
+    return MoveEvent;
+}(GameEvent));
 var Game = /** @class */ (function () {
-    function Game(map, rounds, players, actions) {
+    function Game(map, rounds, players, events) {
         this.map = map;
         this.rounds = rounds;
         this.players = players;
-        this.actions = actions;
+        this.events = events;
     }
     Game.prototype.getPlayerById = function (id) {
         for (var i = 0; i < this.players.length; i++) {
@@ -373,10 +536,10 @@ var Game = /** @class */ (function () {
     return Game;
 }());
 $.getJSON('game.json').always(function (data) {
-    //console.log(data);
     var playerColors = ['#5ab97e', '#f2b179'];
     var game = new Game(new Map(data.misc.mapWidth, data.misc.mapHeight), data.misc.rounds, [], []);
-    var lastShootAction = null;
+    var lastShootEvent = null;
+    var moneyChange = {}, scoreChange = {};
     for (var eventIterator in data.events) {
         var event_1 = data.events[eventIterator];
         switch (event_1.eventType) {
@@ -384,10 +547,11 @@ $.getJSON('game.json').always(function (data) {
                 game.players.push(new Player(event_1.id, event_1.remoteInfo.displayName, playerColors[game.players.length], 0, event_1.initialMoney));
                 break;
             case "ROUND_START":
-                game.actions.push(new RoundAction(event_1.round, event_1.moneyByPlayer));
+                game.events.push(new RoundEvent(event_1.round));
+                game.events[game.events.length - 1].addMoneyChanges(event_1.moneyByPlayer);
                 break;
             case "AGENT_ADD":
-                game.actions.push(new AddAction(event_1.agent, event_1.agentType, game.getPlayerById(event_1.player), new GamePosition(event_1.x, event_1.y), event_1.hp, event_1.score, event_1.cost));
+                game.events.push(new AddEvent(event_1.agent, event_1.agentType, game.getPlayerById(event_1.player), new GamePosition(event_1.x, event_1.y), event_1.hp, event_1.score, event_1.cost));
                 break;
             case "AGENT_MOVE":
                 var direction = Direction.UP;
@@ -397,26 +561,39 @@ $.getJSON('game.json').always(function (data) {
                     direction = Direction.LEFT;
                 if (event_1.toY == event_1.fromY + 1)
                     direction = Direction.DOWN;
-                game.actions.push(new MoveAction(new GamePosition(event_1.fromX, event_1.fromY), direction));
+                game.events.push(new MoveEvent(new GamePosition(event_1.fromX, event_1.fromY), direction));
                 break;
             case "AGENT_SHOOT":
-                lastShootAction = new ShootAction(new GamePosition(event_1.x, event_1.y), new GamePosition(event_1.targetX, event_1.targetY));
+                lastShootEvent = new ShootEvent(new GamePosition(event_1.x, event_1.y), new GamePosition(event_1.targetX, event_1.targetY));
                 break;
             case "AGENT_DAMAGED":
-                if (lastShootAction != null) {
-                    lastShootAction.damage = event_1.damage;
-                    game.actions.push(lastShootAction);
-                    lastShootAction = null;
+                if (lastShootEvent != null) {
+                    lastShootEvent.damage = event_1.damage;
+                    game.events.push(lastShootEvent);
+                    lastShootEvent = null;
                 }
                 break;
             case "AGENT_DIE":
-                if (lastShootAction != null) {
-                    lastShootAction.damage = 100000;
-                    lastShootAction.penaltyScore = event_1.penalty;
-                    game.actions.push(lastShootAction);
-                    lastShootAction = null;
+                if (lastShootEvent != null) {
+                    lastShootEvent.damage = 100000;
+                    lastShootEvent.penaltyScore = event_1.penalty;
+                    game.events.push(lastShootEvent);
+                    lastShootEvent = null;
                 }
                 break;
+            case "AGENT_CHANGE_SCORE":
+                scoreChange[event_1.player] = event_1.finalScore;
+                break;
+            case "AGENT_CHANGE_MONEY":
+                moneyChange[event_1.player] = event_1.finalMoney;
+                break;
+        }
+        if (event_1.eventType != 'AGENT_CHANGE_SCORE' && event_1.eventType != 'AGENT_CHANGE_MONEY' &&
+            game.events.length > 0) {
+            game.events[game.events.length - 1].addMoneyChanges(moneyChange);
+            game.events[game.events.length - 1].addScoreChanges(scoreChange);
+            moneyChange = {};
+            scoreChange = {};
         }
     }
     Site.cellWidth = 640 / Math.max(game.map.height, game.map.width);
@@ -515,13 +692,13 @@ $.getJSON('game.json').always(function (data) {
         'font-size': '18px',
     });
     Site.game = game;
-    var currentAction = 0;
-    var gameInterval = setInterval(function () {
-        if (currentAction < game.actions.length) {
-            game.actions[currentAction++].run();
-        }
-        else {
-            clearInterval(gameInterval);
-        }
-    }, Site.actionTime);
+    /*    let gameInterval = setInterval(function () {
+            if (currentEvent < game.events.length) {
+                game.events[currentEvent++].run();
+            }
+            else {
+                clearInterval(gameInterval);
+            }
+
+        }, Site.eventTime);*/
 });
